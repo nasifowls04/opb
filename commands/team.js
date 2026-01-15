@@ -108,12 +108,14 @@ export async function execute(interactionOrMessage, client) {
   if (mode === "add") {
     const card = findCardFuzzy(arg);
     if (!card) return sendReply("Card not found.");
+    // Prevent adding weapons to team
+    if (card.type && String(card.type).toLowerCase() === 'weapon') return sendReply("You cannot add weapons to your team.");
     const cardsMap = prog.cards instanceof Map ? prog.cards : new Map(Object.entries(prog.cards || {}));
     const entry = cardsMap.get(card.id) || { cardId: card.id, count: 0, xp: 0, level: 0 };
     if ((entry.count || 0) <= 0) return sendReply("You don't own that card.");
     // add to team if not present
     prog.team = prog.team || [];
-    if (prog.team.includes(card.id)) return sendReply(`${card.name} is already in your team.`);
+    if (prog.team && prog.team.some(t => String(t).toLowerCase() === String(card.id).toLowerCase())) return sendReply(`${card.name} is already in your team.`);
     if (prog.team.length >= 3) return sendReply("Team is full (3 cards). Remove a card first.");
     const newTeam = [...prog.team, card.id];
     await Progress.findOneAndUpdate({ userId }, { team: newTeam });
@@ -138,16 +140,28 @@ export async function execute(interactionOrMessage, client) {
     for (const [cid, entry] of cardsMap.entries()) {
       const card = getCardById(cid);
       if (!card) continue;
+      // skip weapons when auto-selecting team
+      if (card.type && String(card.type).toLowerCase() === 'weapon') continue;
       const level = entry.level || 0;
       const score = (card.power || 0) * (1 + level * 0.01);
       owned.push({ card, entry, score });
     }
     if (!owned.length) return sendReply("You have no cards to build a team.");
-    owned.sort((a,b) => b.score - a.score);
-    const newTeam = owned.slice(0,3).map(x => x.card.id);
+    // Deduplicate by canonical card id (in case user's stored keys differ by case)
+    const bestById = new Map(); // key: canonical card.id, value: {card, entry, score}
+    for (const o of owned) {
+      const cid = (o.card && o.card.id) ? o.card.id.toLowerCase() : String(o.card.id);
+      const prev = bestById.get(cid);
+      if (!prev || o.score > prev.score) bestById.set(cid, o);
+    }
+    const uniqueOwned = Array.from(bestById.values());
+    uniqueOwned.sort((a,b) => b.score - a.score);
+    const newTeam = uniqueOwned.slice(0,3).map(x => x.card.id);
     // If the strongest team is already set, say so
     const curTeam = prog.team || [];
-    const same = newTeam.length === curTeam.length && newTeam.every((v, i) => v === curTeam[i]);
+    const curLower = curTeam.map(c => String(c).toLowerCase());
+    const newLower = newTeam.map(c => String(c).toLowerCase());
+    const same = newLower.length === curLower.length && newLower.every((v, i) => v === curLower[i]);
     if (same) {
       return sendReply("Strongest possible team is already set!");
     }
@@ -157,23 +171,32 @@ export async function execute(interactionOrMessage, client) {
   }
 
   // view
-  const teamIds = prog.team || [];
+  // Ensure teamIds is defined and deduplicated to avoid showing the same card multiple times
+  const teamIds = (prog.team || []).filter(Boolean);
+  const seen = new Set();
+  const dedupedTeamIds = [];
+  for (const id of teamIds) {
+    const key = String(id).toLowerCase();
+    if (!seen.has(key)) { seen.add(key); dedupedTeamIds.push(id); }
+  }
+  // limit to 3
+  const teamIdsToShow = dedupedTeamIds.slice(0,3);
 
   // Fetch weapon inventory for banner boosts
   const weaponInv = await WeaponInventory.findOne({ userId }) || null;
 
   // compute and show team boosts (if any)
-  const detailed = (teamIds && teamIds.length) ? computeTeamBoostsDetailed(teamIds, prog.cards, weaponInv) : { totals: { atk:0,hp:0,special:0 }, details: [] };
+  const detailed = (teamIdsToShow && teamIdsToShow.length) ? computeTeamBoostsDetailed(teamIdsToShow, prog.cards, weaponInv) : { totals: { atk:0,hp:0,special:0 }, details: [] };
   const boosts = detailed.totals;
 
   // compute average rank color
   let avgRankVal = 0;
-  for (const id of teamIds) {
+  for (const id of teamIdsToShow) {
     const c = getCardById(id);
     const r = c ? getRankInfo(c.rank) : null;
     avgRankVal += (r ? r.value : 1);
   }
-  avgRankVal = teamIds.length ? avgRankVal / teamIds.length : 1;
+  avgRankVal = teamIdsToShow.length ? avgRankVal / teamIdsToShow.length : 1;
   // find closest rank
   let chosenColor = 0xFFFFFF;
   let bestDiff = Infinity;
@@ -211,10 +234,10 @@ export async function execute(interactionOrMessage, client) {
     .setColor(chosenColor)
     .setFooter({ text: `Requested by ${requesterUser.username}`, iconURL: requesterUser.displayAvatarURL ? requesterUser.displayAvatarURL() : null });
 
-  if (!teamIds.length) {
+  if (!teamIdsToShow.length) {
     embed.setDescription("No team set. Use `op team add <card>` or `/team add <card>`.");
   } else {
-    const fields = teamIds.map((id, i) => {
+    const fields = teamIdsToShow.map((id, i) => {
       const card = getCardById(id);
       const entry = (prog.cards instanceof Map ? prog.cards.get(id) : (prog.cards || {})[id]) || {};
       if (!card) return { name: `#${i+1}: Unknown`, value: `ID: ${id}`, inline: true };

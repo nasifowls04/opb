@@ -117,12 +117,33 @@ export async function execute(interactionOrMessage, client) {
   }
 
   const cardsMap = progDoc.cards instanceof Map ? progDoc.cards : new Map(Object.entries(progDoc.cards || {}));
-  const items = [];
+  // Deduplicate stored card keys by canonical card id (getCardById may map different stored ids
+  // to the same current card). When duplicates exist, merge entries conservatively so display is
+  // accurate: keep highest level, sum counts, sum xp, and earliest acquiredAt.
+  const canonicalMap = new Map();
   for (const [cardId, entry] of cardsMap.entries()) {
     const card = getCardById(cardId);
     if (!card) continue;
-    items.push({ card, entry });
+    const key = card.id.toLowerCase();
+    const prev = canonicalMap.get(key);
+    if (!prev) {
+      // clone entry to avoid mutating DB object
+      canonicalMap.set(key, { card, entry: { ...(entry || {}) } });
+    } else {
+      // merge
+      const merged = prev.entry;
+      merged.count = (merged.count || 0) + (entry.count || 0);
+      merged.xp = (merged.xp || 0) + (entry.xp || 0);
+      merged.level = Math.max(merged.level || 0, entry.level || 0);
+      merged.acquiredAt = Math.min(merged.acquiredAt || Date.now(), entry.acquiredAt || Date.now());
+      // preserve existing boost/haki if present on existing entry
+      if (!merged.boost && entry.boost) merged.boost = entry.boost;
+      if (!merged.haki && entry.haki) merged.haki = entry.haki;
+      canonicalMap.set(key, { card: prev.card, entry: merged });
+    }
   }
+
+  const items = Array.from(canonicalMap.values());
 
   // sort
   sortCollection(items, sortKey);

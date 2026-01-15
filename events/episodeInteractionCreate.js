@@ -199,10 +199,21 @@ export async function handleAccuracy(sessionId, interaction) {
   try { if (session._accuracyInterval) { clearInterval(session._accuracyInterval); session._accuracyInterval = null; } } catch (e) {}
 
   const step = Math.min(barLen, Math.max(1, Math.ceil(elapsed / intervalMs)));
-  // success if user clicked on 4th or 5th tick (barLen-1 or barLen), or within the configured successWindow at end
-  if (step >= (barLen - 1) || (elapsed >= (duration - successWindow) && elapsed <= duration + 500)) {
-    session.phase = (session.phase || 1) + 1;
+  // success if user clicked on the last 3 ticks, or within the configured successWindow at end
+  if (step >= (barLen - 2) || (elapsed >= (duration - successWindow) && elapsed <= duration + 500)) {
     session.accuracy = null;
+    // Advance to next stage with nextStageTitle support
+    const epMod = await import('./episodes_definitions.js');
+    const episodeDefs = epMod.episodes || (epMod.default && epMod.default.episodes);
+    const currentEpisodeDef = episodeDefs && episodeDefs[session.episode];
+    if (currentEpisodeDef) {
+      const currentStage = currentEpisodeDef.stages[session.currentStageIndex];
+      if (currentStage && currentStage.nextStageTitle) {
+        const targetIndex = currentEpisodeDef.stages.findIndex(s => s.title === currentStage.nextStageTitle);
+        if (targetIndex !== -1) session.currentStageIndex = targetIndex;
+        else session.currentStageIndex++;
+      } else session.currentStageIndex++;
+    } else session.currentStageIndex++;
     try { if (global && typeof global.startSailTurn === 'function') await global.startSailTurn(sessionId, interaction.channel); else console.error('startSailTurn not available on global'); } catch (e) { console.error('Failed to continue after accuracy success:', e); }
   } else {
     try { if (global && typeof global.endSailBattle === 'function') await global.endSailBattle(sessionId, interaction.channel, false); else console.error('endSailBattle not available on global'); } catch (e) { console.error('Failed to end sail after accuracy fail:', e); }

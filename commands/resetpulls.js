@@ -2,6 +2,8 @@ import { SlashCommandBuilder, EmbedBuilder } from "discord.js";
 import Pull from "../models/Pull.js";
 import Balance from "../models/Balance.js";
 
+const WINDOW_MS = 24 * 60 * 60 * 1000; // 24 hours
+
 export const data = new SlashCommandBuilder().setName("resetpulls").setDescription("Use a reset token to reset your pulls");
 export const aliases = ["reset"];
 
@@ -28,10 +30,11 @@ export async function execute(interactionOrMessage, client) {
   bal.resetTokens -= 1;
   await bal.save();
 
-  // reset user's pulls (do not change global window)
-  let pullDoc = await Pull.findOne({ userId });
+  // reset user's pulls for current window
+  const currentWindow = Math.floor(Date.now() / WINDOW_MS);
+  let pullDoc = await Pull.findOne({ userId, window: currentWindow });
   if (!pullDoc) {
-    pullDoc = new Pull({ userId, window: 0, used: 0 });
+    pullDoc = new Pull({ userId, window: currentWindow, used: 0 });
   } else {
     pullDoc.used = 0;
     await pullDoc.save();

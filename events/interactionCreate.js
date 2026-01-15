@@ -412,6 +412,8 @@ async function endSailBattle(sessionId, channel, won) {
       if (!session._skipDefeatEmbed) {
         await channel.send({ embeds: [embed] });
       }
+    sailProgress.progress = nextProgress;
+    await sailProgress.save();
   }
 
   global.SAIL_SESSIONS.delete(sessionId);
@@ -628,6 +630,35 @@ async function performSailAttack(session, cardIndex, enemy, actionType, interact
 
 }
 
+function getNextStageIndex(session, currentStages) {
+  const currentIndex = session.mode === 'special' ? session.specialIndex : session.currentStageIndex;
+  const currentStage = currentStages[currentIndex];
+  if (currentStage && currentStage.nextStageTitle) {
+    const targetIndex = currentStages.findIndex(s => s.title === currentStage.nextStageTitle);
+    if (targetIndex !== -1) return targetIndex;
+  }
+  return currentIndex + 1;
+}
+
+function advanceStage(session, currentStages, specialDefs, currentEpisodeDef) {
+  const nextIndex = getNextStageIndex(session, currentStages);
+  if (session.mode === 'special') {
+    if (nextIndex >= currentStages.length) {
+      // End special stages, return to main
+      session.mode = 'normal';
+      const nextTitle = specialDefs[session.specialKey]?.nextStage;
+      if (nextTitle) {
+        const targetIndex = currentEpisodeDef.stages.findIndex(s => s.title === nextTitle);
+        if (targetIndex !== -1) session.currentStageIndex = targetIndex;
+      }
+    } else {
+      session.specialIndex = nextIndex;
+    }
+  } else {
+    session.currentStageIndex = nextIndex;
+  }
+}
+
 export async function startSailTurn(sessionId, channel) {
   const session = global.SAIL_SESSIONS.get(sessionId);
   if (!session) return;
@@ -642,8 +673,34 @@ export async function startSailTurn(sessionId, channel) {
   const episodeDefs = epMod.episodes || (epMod.default && epMod.default.episodes);
   const currentEpisodeDef = episodeDefs && episodeDefs[session.episode];
   if (!currentEpisodeDef) { await endSailBattle(sessionId, channel, false); return; }
-  const stage = currentEpisodeDef.stages && currentEpisodeDef.stages[session.currentStageIndex];
-  if (!stage) { await endSailBattle(sessionId, channel, true); return; }
+
+  const specialMod = await import('./special_stages.js');
+  const specialDefs = specialMod.specialStages || (specialMod.default && specialMod.default.specialStages);
+  let currentStages, currentIndex;
+  if (session.mode === 'special') {
+    currentStages = specialDefs[session.specialKey]?.stages;
+    currentIndex = session.specialIndex ?? 0;
+  } else {
+    currentStages = currentEpisodeDef.stages;
+    currentIndex = session.currentStageIndex;
+  }
+  if (!currentStages) { await endSailBattle(sessionId, channel, false); return; }
+  const stage = currentStages[currentIndex];
+  if (!stage) {
+    if (session.mode === 'special') {
+      // End special stages, return to main
+      session.mode = 'normal';
+      const nextTitle = specialDefs[session.specialKey]?.nextStage;
+      if (nextTitle) {
+        const targetIndex = currentEpisodeDef.stages.findIndex(s => s.title === nextTitle);
+        if (targetIndex !== -1) session.currentStageIndex = targetIndex;
+      }
+      await startSailTurn(sessionId, channel);
+      return;
+    } else {
+      await endSailBattle(sessionId, channel, true); return;
+    }
+  }
 
   // Determine location-based styling (author + color) for non-fight embeds
   const locations = epMod.locations || (epMod.default && epMod.default.locations) || {};
@@ -656,7 +713,8 @@ export async function startSailTurn(sessionId, channel) {
     try {
       const authorName = (locEntry && locEntry.name) || defaultAuthor;
       const color = (locEntry && locEntry.color) || defaultColor;
-      const embed = new EmbedBuilder().setTitle(stage.title || currentEpisodeDef.title || 'Episode').setDescription(stage.description || '').setColor(color).setAuthor({ name: authorName });
+      const EPISODE_REWARD_GREY = 0x95a5a6;
+      const embed = new EmbedBuilder().setTitle(stage.title || currentEpisodeDef.title || 'Episode').setDescription(stage.description || '').setAuthor({ name: authorName });
       if (stage.image) embed.setImage(stage.image);
       const components = [];
       const buttons = [];
@@ -667,34 +725,170 @@ export async function startSailTurn(sessionId, channel) {
         if (rewardText) {
           const prev = embed.data.description || '';
           embed.setDescription(prev + '\n\n' + rewardText + `\n\n**XP on start:** ${session.difficulty === 'hard' ? 30 : session.difficulty === 'medium' ? 20 : 10} to you and each team member.`);
+          // episode-level embeds that display rewards should be grey
+          embed.setColor(EPISODE_REWARD_GREY);
+        } else {
+          // regular stage embeds use the location color
+          embed.setColor(color);
         }
       } catch (e) {
         // ignore formatting errors
       }
-      if (session.currentStageIndex < (currentEpisodeDef.stages.length - 1)) {
-        buttons.push(new ButtonBuilder().setCustomId(`sail_next:${sessionId}:${session.currentStageIndex + 1}`).setLabel('Next Stage').setStyle(ButtonStyle.Secondary));
-      } else {
+      let nextIndex = getNextStageIndex(session, currentStages);
+      if (nextIndex < currentStages.length) {
+        buttons.push(new ButtonBuilder().setCustomId(`sail_next:${sessionId}:${nextIndex}`).setLabel('Next Stage').setStyle(ButtonStyle.Secondary));
+      } else if (session.mode !== 'special') {
         buttons.push(new ButtonBuilder().setCustomId(`sail_next:${sessionId}:claim`).setLabel('Claim Rewards').setStyle(ButtonStyle.Secondary));
         if (typeof session.episode === 'number' && session.episode < 8) {
           buttons.push(new ButtonBuilder().setCustomId(`sail_battle_ep${session.episode + 1}:${session.userId}:start`).setLabel('Next Episode').setStyle(ButtonStyle.Primary));
         }
       }
       components.push(new ActionRowBuilder().addComponents(...buttons));
+
+      // Load models for rewards and XP
+      const Balance = (await import("../models/Balance.js")).default;
+      const Inventory = (await import("../models/Inventory.js")).default;
+      const Progress = (await import("../models/Progress.js")).default;
+      const balance = await Balance.findOne({ userId: session.userId }) || new Balance({ userId: session.userId });
+      const inventory = await Inventory.findOne({ userId: session.userId }) || new Inventory({ userId: session.userId });
+      const progress = await Progress.findOne({ userId: session.userId }) || new Progress({ userId: session.userId });
+      inventory.cards = inventory.cards || {};
+      inventory.chests = inventory.chests || {};
+
+      // Apply rewards for episode intro embeds
+      if (session.currentStageIndex === 0 && stage.rewards && Array.isArray(stage.rewards)) {
+        for (const reward of stage.rewards) {
+          if (reward.type === 'beli') {
+            let amount;
+            if (typeof reward.amount === 'number') {
+              amount = reward.amount;
+            } else if (reward.amount.includes && reward.amount.includes('-')) {
+              const [min, max] = reward.amount.split('-').map(Number);
+              amount = Math.floor(Math.random() * (max - min + 1)) + min;
+            } else {
+              amount = parseInt(reward.amount);
+            }
+            balance.balance += amount;
+          } else if (reward.type === 'chest') {
+            inventory.chests[reward.rank] = (inventory.chests[reward.rank] || 0) + (reward.amount || 1);
+          } else if (reward.type === 'xp') {
+            progress.userXp = (progress.userXp || 0) + reward.amount;
+            // Level up logic
+            let levelsGained = 0;
+            while (progress.userXp >= 100) {
+              progress.userXp -= 100;
+              progress.userLevel = (progress.userLevel || 1) + 1;
+              levelsGained++;
+            }
+            if (levelsGained > 0) {
+              balance.balance += levelsGained * 50;
+              const rankIndex = Math.floor((progress.userLevel - 1) / 10);
+              const ranks = ['C', 'B', 'A', 'S'];
+              const currentRank = ranks[rankIndex] || 'S';
+              const prevRank = ranks[rankIndex - 1];
+              const chance = ((progress.userLevel - 1) % 10 + 1) * 10;
+              if (Math.random() * 100 < chance) {
+                inventory.chests[currentRank] += 1;
+              } else if (prevRank) {
+                inventory.chests[prevRank] += 1;
+              }
+            }
+          } else if (reward.type === 'karma') {
+            progress.karma = (progress.karma || 0) + reward.amount;
+          } else if (reward.type === 'reset') {
+            // Assuming reset is for pull resets or something, but not implemented yet
+          } else if (reward.type === 'card') {
+            const cardId = reward.name.toLowerCase().replace(/ /g, '') + '_c_01';
+            inventory.cards[cardId] = (inventory.cards[cardId] || 0) + 1;
+          }
+        }
+      }
+
+      // Award XP to user and team on every embed stage
+      const xpAmount = session.difficulty === 'hard' ? 30 : session.difficulty === 'medium' ? 20 : 10;
+      progress.userXp = (progress.userXp || 0) + xpAmount;
+      // Level up logic for user
+      let levelsGained = 0;
+      while (progress.userXp >= 100) {
+        progress.userXp -= 100;
+        progress.userLevel = (progress.userLevel || 1) + 1;
+        levelsGained++;
+      }
+      if (levelsGained > 0) {
+        balance.balance += levelsGained * 50;
+        const rankIndex = Math.floor((progress.userLevel - 1) / 10);
+        const ranks = ['C', 'B', 'A', 'S'];
+        const currentRank = ranks[rankIndex] || 'S';
+        const prevRank = ranks[rankIndex - 1];
+        const chance = ((progress.userLevel - 1) % 10 + 1) * 10;
+        if (Math.random() * 100 < chance) {
+          inventory.chests[currentRank] = (inventory.chests[currentRank] || 0) + 1;
+        } else if (prevRank) {
+          inventory.chests[prevRank] = (inventory.chests[prevRank] || 0) + 1;
+        }
+      }
+      // Award XP to team cards
+      for (const cardId of progress.team || []) {
+        if (progress.cards.has(cardId)) {
+          let entry = progress.cards.get(cardId);
+          entry.xp = (entry.xp || 0) + xpAmount;
+          while (entry.xp >= 100) {
+            entry.xp -= 100;
+            entry.level = (entry.level || 1) + 1;
+          }
+          progress.cards.set(cardId, entry);
+        }
+      }
+      await balance.save();
+      await inventory.save();
+      await progress.save();
+
       await channel.send({ embeds: [embed], components });
     } catch (e) { console.error('startSailTurn embed error:', e); }
+    return;
+  }
+
+  // Handle decision stages
+  if (stage.type === 'decision') {
+    try {
+      const authorName = (locEntry && locEntry.name) || defaultAuthor;
+      const color = (locEntry && locEntry.color) || defaultColor;
+      const embed = new EmbedBuilder().setTitle(stage.title || 'Decision').setDescription(stage.description || '').setColor(color).setAuthor({ name: authorName });
+      if (stage.image) embed.setImage(stage.image);
+      const buttons = [
+        new ButtonBuilder().setCustomId(`sail_decision:${sessionId}:yes`).setLabel(stage.buttonYes || 'Yes').setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId(`sail_decision:${sessionId}:no`).setLabel(stage.buttonNo || 'No').setStyle(ButtonStyle.Secondary)
+      ];
+      const components = [new ActionRowBuilder().addComponents(...buttons)];
+      await channel.send({ embeds: [embed], components });
+    } catch (e) { console.error('startSailTurn decision error:', e); }
+    return;
+  }
+
+  // Handle trivia stages
+  if (stage.type === 'trivia') {
+    try {
+      const authorName = (locEntry && locEntry.name) || defaultAuthor;
+      const color = (locEntry && locEntry.color) || defaultColor;
+      const embed = new EmbedBuilder().setTitle(stage.title || 'Trivia').setDescription((stage.description || '') + '\n\n**' + (stage.question || 'Question?') + '**').setColor(color).setAuthor({ name: authorName });
+      if (stage.image) embed.setImage(stage.image);
+      const buttons = Object.keys(stage.buttons || {}).map(key => new ButtonBuilder().setCustomId(`sail_trivia:${sessionId}:${key}`).setLabel(stage.buttons[key]).setStyle(ButtonStyle.Secondary));
+      const components = [new ActionRowBuilder().addComponents(...buttons)];
+      await channel.send({ embeds: [embed], components });
+    } catch (e) { console.error('startSailTurn trivia error:', e); }
     return;
   }
 
   // Handle accuracy stages
   if (stage.type === 'accuracy') {
     try {
-      const barLen = stage.barLen || 5;
+      const barLen = stage.barLen || 10;
       const intervalMs = stage.intervalMs || 1000;
       const duration = barLen * intervalMs;
       let step = 0;
       const authorName = (locEntry && locEntry.name) || defaultAuthor;
       const color = (locEntry && locEntry.color) || defaultColor;
-      const embed = new EmbedBuilder().setTitle(stage.title || 'Accuracy Test').setDescription(stage.description || 'Click the button to stop the progress bar as close to the end as possible.').setColor(color).setAuthor({ name: authorName });
+      const embed = new EmbedBuilder().setTitle(stage.title || 'Accuracy Test').setDescription((stage.description || 'Click the button to stop the progress bar as close to the end as possible.') + '\n\n*stop the progress bar closest to 100%!*').setColor(color).setAuthor({ name: authorName });
       if (stage.image) embed.setImage(stage.image);
       const btn = new ButtonBuilder().setCustomId(`sail_accuracy:${sessionId}:stop`).setLabel('Now!').setStyle(ButtonStyle.Primary);
       const msg = await channel.send({ embeds: [embed], components: [new ActionRowBuilder().addComponents(btn)] });
@@ -723,7 +917,8 @@ export async function startSailTurn(sessionId, channel) {
     try {
       const authorName = (locEntry && locEntry.name) || defaultAuthor;
       const color = (locEntry && locEntry.color) || defaultColor;
-      const embed = new EmbedBuilder().setTitle(stage.title || 'Rewards').setDescription(stage.description || '').setColor(color).setAuthor({ name: authorName });
+      const embed = new EmbedBuilder().setTitle(stage.title || 'Rewards').setColor(0x000000).setAuthor({ name: authorName });
+      if (stage.description && stage.description.trim()) embed.setDescription(stage.description);
       if (stage.image) embed.setImage(stage.image);
       const buttons = [new ButtonBuilder().setCustomId(`sail_next:${sessionId}:claim`).setLabel('Claim Rewards').setStyle(ButtonStyle.Secondary)];
       if (typeof session.episode === 'number' && session.episode < 8) buttons.push(new ButtonBuilder().setCustomId(`sail_battle_ep${session.episode + 1}:${session.userId}:start`).setLabel('Next Episode').setStyle(ButtonStyle.Primary));
@@ -749,6 +944,7 @@ export async function startSailTurn(sessionId, channel) {
           special: e.special || null
         }));
         session._stageInitialized = session.currentStageIndex;
+        session.cards.forEach(c => c.usedSpecial = false);
       }
     } catch (e) { console.error('startSailTurn fight setup error:', e); }
   }
@@ -768,7 +964,7 @@ export async function startSailTurn(sessionId, channel) {
   const aliveEnemies = (session.enemies || []).filter(e => e.health > 0);
   if (aliveEnemies.length === 0) {
     // advance to next stage (clear stage init so next stage initializes properly)
-    session.currentStageIndex++;
+    advanceStage(session, currentStages, specialDefs, currentEpisodeDef);
     session._stageInitialized = null;
     await startSailTurn(sessionId, channel);
     return;
@@ -852,7 +1048,7 @@ export async function execute(interaction, client) {
     if (interaction.isButton()) {
       const id = interaction.customId || "";
       // only handle known prefixes (include shop_ and duel_). Let per-message duel_* collectors handle duel interactions.
-    if (!id.startsWith("info_") && !id.startsWith("collection_") && !id.startsWith("quest_") && !id.startsWith("help_") && !id.startsWith("drop_claim") && !id.startsWith("shop_") && !id.startsWith("duel_") && !id.startsWith("leaderboard_") && !id.startsWith("sail:") && !id.startsWith("sail_battle:") && !id.startsWith("sail_battle_ep1:") && !id.startsWith("sail_battle_ep2:") && !id.startsWith("sail_battle_ep3:") && !id.startsWith("sail_battle_ep4:") && !id.startsWith("sail_battle_ep5:") && !id.startsWith("sail_battle_ep6:") && !id.startsWith("sail_battle_ep7:") && !id.startsWith("sail_battle_ep8:") && !id.startsWith("sail_accuracy:") && !id.startsWith("sail_ep2_choice:") && !id.startsWith("sail_ep5_choice:") && !id.startsWith("sail_ep6_choice:") && !id.startsWith("sail_selectchar:") && !id.startsWith("sail_chooseaction:") && !id.startsWith("sail_selecttarget:") && !id.startsWith("sail_heal:") && !id.startsWith("sail_heal_item:") && !id.startsWith("sail_heal_card:") && !id.startsWith("sail_haki:") && !id.startsWith("sail_next:") && !id.startsWith("map_nav:")) return;
+    if (!id.startsWith("info_") && !id.startsWith("collection_") && !id.startsWith("quest_") && !id.startsWith("help_") && !id.startsWith("drop_claim") && !id.startsWith("shop_") && !id.startsWith("duel_") && !id.startsWith("leaderboard_") && !id.startsWith("sail:") && !id.startsWith("sail_battle:") && !id.startsWith("sail_battle_ep1:") && !id.startsWith("sail_battle_ep2:") && !id.startsWith("sail_battle_ep3:") && !id.startsWith("sail_battle_ep4:") && !id.startsWith("sail_battle_ep5:") && !id.startsWith("sail_battle_ep6:") && !id.startsWith("sail_battle_ep7:") && !id.startsWith("sail_battle_ep8:") && !id.startsWith("sail_accuracy:") && !id.startsWith("sail_ep2_choice:") && !id.startsWith("sail_ep5_choice:") && !id.startsWith("sail_ep6_choice:") && !id.startsWith("sail_selectchar:") && !id.startsWith("sail_chooseaction:") && !id.startsWith("sail_selecttarget:") && !id.startsWith("sail_heal:") && !id.startsWith("sail_heal_item:") && !id.startsWith("sail_heal_card:") && !id.startsWith("sail_haki:") && !id.startsWith("sail_next:") && !id.startsWith("map_nav:") && !id.startsWith("sail_trivia:") && !id.startsWith("sail_decision:")) return;
       // ignore duel_* here so message-level collectors in `commands/duel.js` receive them
       if (id.startsWith("duel_")) return;
 
@@ -875,7 +1071,11 @@ export async function execute(interaction, client) {
         }
         const nextStageIndex = parseInt(stageIndexPart);
         if (!isNaN(nextStageIndex)) {
-          session.currentStageIndex = nextStageIndex;
+          if (session.mode === 'special') {
+            session.specialIndex = nextStageIndex;
+          } else {
+            session.currentStageIndex = nextStageIndex;
+          }
           await startSailTurn(sessionId, interaction.channel);
         }
         return;
@@ -1377,26 +1577,15 @@ export async function execute(interaction, client) {
         }
 
         if (subaction === "start") {
-          // Start Episode 2: Zoro choice
-          const embed = new EmbedBuilder()
-            .setColor('Blue')
-            .setDescription(`You encounter infamous pirate hunter Zoro, help him ?\n\n**If yes:**\nObtain 1x Roronoa Zoro card\nMove to stage 2\n-1 Karma\n\n**If no:**\nMove to stage 2\n Extra Secret stage\n+1 Karma`)
-            .setImage('https://files.catbox.moe/y6pah3.webp');
-
-          const buttons = new ActionRowBuilder()
-            .addComponents(
-              new ButtonBuilder()
-                .setCustomId(`sail_ep2_choice:${userId}:yes`)
-                .setLabel('Yes')
-                .setStyle(ButtonStyle.Success),
-              new ButtonBuilder()
-                .setCustomId(`sail_ep2_choice:${userId}:no`)
-                .setLabel('No')
-                .setStyle(ButtonStyle.Danger)
-            );
-
-          await interaction.update({ embeds: [embed], components: [buttons] });
-          try { console.log('sail_battle_ep2:start shown to', interaction.user.id); } catch (e) {}
+          try { if (!interaction.deferred && !interaction.replied) await interaction.deferUpdate(); } catch (e) {}
+          try {
+            console.log('Calling startEpisode for ep2 for', userId);
+            const sessionId = await startEpisode(userId, 2, interaction);
+            if (sessionId) await startSailTurn(sessionId, interaction.channel);
+          } catch (e) {
+            console.error('Failed to start Episode2:', e && e.message ? e.message : e);
+            try { await interaction.followUp({ content: 'Error starting Episode 2.', ephemeral: true }); } catch (err) {}
+          }
         }
       }
 
@@ -1649,57 +1838,221 @@ export async function execute(interaction, client) {
         return;
       }
 
-      // Handle sail_ep2_choice buttons
-      if (action === "sail_ep2_choice") {
-        const userId = ownerId;
+      // Handle sail_decision buttons
+      if (action === "sail_decision") {
+        const sessionId = ownerId;
         const choice = parts[2];
 
-        if (interaction.user.id !== userId) {
-          await interaction.reply({ content: "Only the original requester can use these buttons.", flags: MessageFlags.Ephemeral });
+        const session = global.SAIL_SESSIONS.get(sessionId);
+        if (!session || interaction.user.id !== session.userId) {
+          await interaction.reply({ content: "Invalid session or not your session.", ephemeral: true });
           return;
         }
 
         // Acknowledge the button immediately to avoid "interaction failed"
         try { await interaction.deferUpdate(); } catch (e) { /* ignore */ }
 
-        try { console.log('sail_ep2_choice pressed by', interaction.user.id, 'owner', userId, 'choice', choice); } catch (e) {}
+        try { console.log('sail_decision pressed by', interaction.user.id, 'session', sessionId, 'choice', choice); } catch (e) {}
+
+        // Load episode definitions
+        const epMod = await import('./episodes_definitions.js');
+        const episodeDefs = epMod.episodes || (epMod.default && epMod.default.episodes);
+        const currentEpisodeDef = episodeDefs && episodeDefs[session.episode];
+        const specialMod = await import('./special_stages.js');
+        const specialDefs = specialMod.specialStages || (specialMod.default && specialMod.default.specialStages);
+        const stage = currentEpisodeDef.stages[session.currentStageIndex];
 
         const Progress = (await import("../models/Progress.js")).default;
-        const progress = await Progress.findOne({ userId });
+
+        const progress = await Progress.findOne({ userId: session.userId });
 
         if (choice === "yes") {
-          // Help Zoro: get Zoro card, -1 karma, move to stage 2
+          // Help Zoro: -1 karma
           progress.karma = (progress.karma || 0) - 1;
           await progress.save();
-
-          // Add Zoro card to inventory (use canonical card id)
-          const Inventory = (await import("../models/Inventory.js")).default;
-          const inventory = await Inventory.findOne({ userId }) || new Inventory({ userId });
-          inventory.cards = inventory.cards || {};
-          inventory.cards['roronoazoro_c_01'] = (inventory.cards['roronoazoro_c_01'] || 0) + 1;
-          await inventory.save();
-
-          // Start Stage 2 battle
-          try {
-            console.log('Calling startEpisode2Stage2 (yes) for', userId);
-            await startEpisode2Stage2(userId, interaction, true);
-          } catch (e) {
-            console.error('Failed to start Episode2 Stage2 (yes):', e && e.message ? e.message : e);
-            try { await interaction.followUp({ content: 'Error starting Episode 2 battle.', ephemeral: true }); } catch (err) {}
-          }
         } else {
-          // Don't help Zoro: +1 karma, schedule final Zoro encounter at the end
+          // Don't help Zoro: +1 karma
           progress.karma = (progress.karma || 0) + 1;
           await progress.save();
+        }
 
-          // Always proceed to stage 2; final Zoro will appear after Helmeppo and Marines
-          try {
-            console.log('Calling startEpisode2Stage2 (no) for', userId);
-            await startEpisode2Stage2(userId, interaction, false);
-          } catch (e) {
-            console.error('Failed to start Episode2 Stage2 (no):', e && e.message ? e.message : e);
-            try { await interaction.followUp({ content: 'Error starting Episode 2 battle.', ephemeral: true }); } catch (err) {}
+        // Apply rewards
+        const rewards = choice === 'yes' ? stage.rewardsYes : stage.rewardsNo;
+        if (rewards && Array.isArray(rewards)) {
+          const Balance = (await import("../models/Balance.js")).default;
+          const Inventory = (await import("../models/Inventory.js")).default;
+          const balance = await Balance.findOne({ userId: session.userId }) || new Balance({ userId: session.userId });
+          const inventory = await Inventory.findOne({ userId: session.userId }) || new Inventory({ userId: session.userId });
+          inventory.cards = inventory.cards || {};
+          inventory.chests = inventory.chests || {};
+          for (const reward of rewards) {
+            if (reward.type === 'beli') {
+              const amount = typeof reward.amount === 'number' ? reward.amount : parseInt((reward.amount + '').split('-')[0]);
+              balance.balance += amount;
+            } else if (reward.type === 'card') {
+              const cardId = reward.name.toLowerCase().replace(/ /g, '') + '_c_01';
+              inventory.cards[cardId] = (inventory.cards[cardId] || 0) + 1;
+            } else if (reward.type === 'chest') {
+              inventory.chests[reward.rank] = (inventory.chests[reward.rank] || 0) + (reward.amount || 1);
+            } else if (reward.type === 'xp') {
+              progress.userXp = (progress.userXp || 0) + reward.amount;
+              // Level up logic
+              let levelsGained = 0;
+              while (progress.userXp >= 100) {
+                progress.userXp -= 100;
+                progress.userLevel = (progress.userLevel || 1) + 1;
+                levelsGained++;
+              }
+              if (levelsGained > 0) {
+                balance.balance += levelsGained * 50;
+                const rankIndex = Math.floor((progress.userLevel - 1) / 10);
+                const ranks = ['C', 'B', 'A', 'S'];
+                const currentRank = ranks[rankIndex] || 'S';
+                const prevRank = ranks[rankIndex - 1];
+                const chance = ((progress.userLevel - 1) % 10 + 1) * 10;
+                if (Math.random() * 100 < chance) {
+                  inventory.chests[currentRank] += 1;
+                } else if (prevRank) {
+                  inventory.chests[prevRank] += 1;
+                }
+              }
+            } else if (reward.type === 'karma') {
+              progress.karma = (progress.karma || 0) + reward.amount;
+            }
           }
+          await balance.save();
+          await inventory.save();
+        }
+
+        // Redirect to target stage
+        const target = choice === 'yes' ? stage.Ifyes : stage.Ifno;
+        const targetTitle = target.title;
+        if (specialDefs[targetTitle]) {
+          session.mode = 'special';
+          session.specialKey = targetTitle;
+          session.specialIndex = 0;
+        } else {
+          const targetIndex = currentEpisodeDef.stages.findIndex(s => s.title === targetTitle);
+          if (targetIndex !== -1) {
+            session.currentStageIndex = targetIndex;
+          }
+        }
+        if (target.isloose) {
+          await endSailBattle(sessionId, interaction.channel, false);
+        } else {
+          await startSailTurn(sessionId, interaction.channel);
+        }
+      }
+
+      // Handle sail_trivia buttons
+      if (action === "sail_trivia") {
+        const sessionId = ownerId;
+        const choice = parts[2];
+
+        const session = global.SAIL_SESSIONS.get(sessionId);
+        if (!session || interaction.user.id !== session.userId) {
+          await interaction.reply({ content: "Invalid session or not your session.", ephemeral: true });
+          return;
+        }
+
+        // Acknowledge the button immediately to avoid "interaction failed"
+        try { await interaction.deferUpdate(); } catch (e) { /* ignore */ }
+
+        // Load episode definitions
+        const epMod = await import('./episodes_definitions.js');
+        const formatRewardsList = epMod.formatRewardsList;
+        const episodeDefs = epMod.episodes || (epMod.default && epMod.default.episodes);
+        const currentEpisodeDef = episodeDefs && episodeDefs[session.episode];
+        const specialMod = await import('./special_stages.js');
+        const specialDefs = specialMod.specialStages || (specialMod.default && specialMod.default.specialStages);
+        let currentStages;
+        if (session.mode === 'special') {
+          currentStages = specialDefs[session.specialKey]?.stages;
+        } else {
+          currentStages = currentEpisodeDef.stages;
+        }
+        const stage = currentEpisodeDef.stages[session.currentStageIndex];
+
+        if (choice === stage.answer) {
+          // Correct
+          const rewards = stage.rewards || [];
+          if (rewards.length) {
+            const Progress = (await import("../models/Progress.js")).default;
+            const Balance = (await import("../models/Balance.js")).default;
+            const Inventory = (await import("../models/Inventory.js")).default;
+            const progress = await Progress.findOne({ userId: session.userId });
+            const balance = await Balance.findOne({ userId: session.userId }) || new Balance({ userId: session.userId });
+            const inventory = await Inventory.findOne({ userId: session.userId }) || new Inventory({ userId: session.userId });
+            inventory.cards = inventory.cards || {};
+            inventory.chests = inventory.chests || {};
+            for (const reward of rewards) {
+              if (reward.type === 'beli') {
+                let amount;
+                if (typeof reward.amount === 'number') {
+                  amount = reward.amount;
+                } else if (reward.amount.includes && reward.amount.includes('-')) {
+                  const [min, max] = reward.amount.split('-').map(Number);
+                  amount = Math.floor(Math.random() * (max - min + 1)) + min;
+                } else {
+                  amount = parseInt(reward.amount);
+                }
+                balance.balance += amount;
+              } else if (reward.type === 'card') {
+                const cardId = reward.name.toLowerCase().replace(/ /g, '') + '_c_01';
+                inventory.cards[cardId] = (inventory.cards[cardId] || 0) + 1;
+              } else if (reward.type === 'chest') {
+                inventory.chests[reward.rank] = (inventory.chests[reward.rank] || 0) + (reward.amount || 1);
+              } else if (reward.type === 'xp') {
+                progress.userXp = (progress.userXp || 0) + reward.amount;
+                // Level up logic
+                let levelsGained = 0;
+                while (progress.userXp >= 100) {
+                  progress.userXp -= 100;
+                  progress.userLevel = (progress.userLevel || 1) + 1;
+                  levelsGained++;
+                }
+                if (levelsGained > 0) {
+                  balance.balance += levelsGained * 50;
+                  const rankIndex = Math.floor((progress.userLevel - 1) / 10);
+                  const ranks = ['C', 'B', 'A', 'S'];
+                  const currentRank = ranks[rankIndex] || 'S';
+                  const prevRank = ranks[rankIndex - 1];
+                  const chance = ((progress.userLevel - 1) % 10 + 1) * 10;
+                  if (Math.random() * 100 < chance) {
+                    inventory.chests[currentRank] += 1;
+                  } else if (prevRank) {
+                    inventory.chests[prevRank] += 1;
+                  }
+                }
+              } else if (reward.type === 'karma') {
+                progress.karma = (progress.karma || 0) + reward.amount;
+              }
+            }
+            await progress.save();
+            await balance.save();
+            await inventory.save();
+            const rewardText = formatRewardsList ? formatRewardsList(rewards, session.difficulty) : '';
+            await interaction.followUp({ content: rewardText ? `**Rewards received:**\n${rewardText}` : 'You got it right!' });
+          } else {
+            await interaction.followUp({ content: 'You got it right!' });
+          }
+          // Move to next stage
+          advanceStage(session, currentStages, specialDefs, currentEpisodeDef);
+          await startSailTurn(sessionId, interaction.channel);
+        } else {
+          // Wrong choice
+          const wrongImages = [
+            'https://files.catbox.moe/3fykj1.jpg',
+            'https://files.catbox.moe/pgu1ji.jpg',
+            'https://files.catbox.moe/xoak0h.gif',
+            'https://files.catbox.moe/q1cuko.jpg',
+            'https://files.catbox.moe/q5v1p5.gif',
+            'https://files.catbox.moe/q6pkf2.gif'
+          ];
+          const randomImage = wrongImages[Math.floor(Math.random() * wrongImages.length)];
+          const wrongEmbed = new EmbedBuilder().setTitle('Not quite!').setDescription('That was the wrong answer, better luck next time.').setColor(0xff0000).setImage(randomImage);
+          await interaction.editReply({ embeds: [wrongEmbed] });
+          await endSailBattle(sessionId, interaction.channel, false);
         }
       }
 

@@ -188,9 +188,10 @@ I'm Luffy! The Man Who Will Become the Pirate King!`)
     const introStage = epDef.stages.find(s => s.type === 'embed') || epDef.stages[0];
     const epColor = getDifficultyColor(epDef.difficulty, difficulty);
     const rewardsText = getRewardsText(introStage, difficulty);
+    const EPISODE_REWARD_GREY = 0x95a5a6;
 
     const embed = new EmbedBuilder()
-      .setColor(epColor)
+      .setColor(rewardsText ? EPISODE_REWARD_GREY : epColor)
       .setTitle(`${introStage.title || epDef.title}`)
       .setDescription((introStage.description || '') + (rewardsText ? `\n\n${rewardsText}` : ''))
       .setImage(introStage.image || epDef.image || '');

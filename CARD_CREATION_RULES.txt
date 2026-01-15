@@ -1,0 +1,519 @@
+================================================================================
+                      CARD CREATION RULES & GUIDELINES
+================================================================================
+
+TABLE OF CONTENTS
+1. Card Structure & Layout
+2. Rounding Rules
+3. Rarity Tiers & Stat Ranges
+4. Special Conditions (SC)
+5. Race System & Perks
+6. Global Rules
+
+
+================================================================================
+1. CARD STRUCTURE & LAYOUT
+================================================================================
+
+Card ID Format:
+  "cardname"_"rank"_"upgradeversion"
+  Example: "Luffy_e_01", "MonkeyDLuffy_c_02"
+
+Card Properties Order:
+  - id
+  - name
+  - title (DO NOT CHANGE EXISTING TITLES)
+  - rank
+  - race (FIRST FIELD - displayed everywhere on card embed)
+  - power
+  - health
+  - speed
+  - type
+  - attackRange [min, max]
+  - specialAttack (if applicable)
+    - name
+    - range [min, max]
+    - gif (URL)
+    - specialCondition (SC) - see section 4
+  - ability (if applicable)
+  - image (URL)
+  - haki (if applicable)
+  - evolutions (array of next evolution IDs)
+  - isUpgrade (boolean)
+  - upgradeRequirements (if isUpgrade = true)
+    - cost (gold)
+    - minLevel
+
+
+================================================================================
+2. ROUNDING RULES
+================================================================================
+
+ROUND UP TO NEAREST MULTIPLE OF 5:
+  - Power
+  - Health
+  - Speed
+  - Level required for next evolution (minLevel in upgradeRequirements)
+
+ROUND UP TO NEAREST WHOLE NUMBER (1):
+  - All other numerical values
+  - Attack ranges
+  - Special attack ranges
+
+ROUNDING SPECIAL CASES:
+  - For stat ranges, round each endpoint separately
+  - If calculated value ends in .5 or higher, always round up
+  - Examples:
+    * 89 → 90
+    * 92 → 95
+    * 73 → 75
+    * 157.3 → 160
+    * 204.8 → 205
+
+
+================================================================================
+3. RARITY TIERS & STAT RANGES
+================================================================================
+
+E (Common):
+  Power: 0 to 10
+  Health: 0 to 10
+  Speed: 0 to 10
+  Attack Range: 1 to 2
+
+D (Uncommon):
+  Power: 10 to 50
+  Health: 10 to 50
+  Speed: 10 to 50
+  Attack Range: 2 to 10
+
+C (Rare):
+  Power: 50 to 100
+  Health: 50 to 100
+  Speed: 50 to 200
+  Attack Range: 10 to 20
+
+B (Super Rare):
+  Power: 100 to 175
+  Health: 100 to 150
+  Speed: 100 to 250
+  Attack Range: 20 to 30
+
+A (Ultra Rare):
+  Power: 175 to 250
+  Health: 150 to 200
+  Speed: 175 to 400
+  Attack Range: 30 to 50
+
+S (Legendary):
+  Power: 250 to 350
+  Health: 200 to 300
+  Speed: 250 to 500
+  Attack Range: 50 to 60
+
+SS (Hyper Legendary):
+  Power: 350 to 500
+  Health: 300 to 400
+  Speed: (within card design)
+  Attack Range: 60 to 80
+
+UR (Ultra Rare Mythic):
+  Power: 500 to 750
+  Health: 400 to 600
+  Speed: 500 to 1000
+  Attack Range: 80 to 120
+
+LR (Legendary Rare):
+  Power: 750 to 1000
+  Health: 600 to 1000
+  Speed: 750 to 1000
+  Attack Range: 120 to 200
+
+
+================================================================================
+4. SPECIAL CONDITIONS (SC)
+================================================================================
+
+WHAT ARE SPECIAL CONDITIONS?
+  - Effects that activate when a special attack is used
+  - Displayed under the Special Attack section as "Special Condition (SC)"
+  - Displayed next to character name when active in battle
+  - Can affect single card or entire opposing team (F prefix)
+
+SPECIAL CONDITION DEFINITIONS
+===============================
+
+POISON EFFECTS:
+
+  Poison
+  - Reduces affected card's attack by 10% total
+  - Decreases by 1% per turn
+  - Deals 1/20 of opponent's HP each turn
+  - Single card only
+
+  EVOpoison
+  - Reduces attack by 15% total
+  - Decreases by 1% per turn
+  - Deals 2/10 of opponent's HP each turn
+  - Single card only
+
+  Fpoison (Full Poison)
+  - Same as Poison but affects ENTIRE opposing team
+
+  FEVOpoison (Full EVO Poison)
+  - Same as EVOpoison but affects ENTIRE opposing team
+
+
+STUN EFFECTS:
+
+  Stun
+  - Affected card cannot attack for 1 turn
+  - Single card only
+
+  EVOstun
+  - Affected card cannot attack for 2 turns
+  - Single card only
+
+  Fstun (Full Stun)
+  - Same as Stun but affects ENTIRE opposing team
+
+  FEVOstun (Full EVO Stun)
+  - Same as EVOstun but affects ENTIRE opposing team
+
+
+BURN EFFECTS:
+
+  Burn
+  - Affected card takes 1/16 of user's HP each turn
+  - Single card only
+
+  EVOburn
+  - Affected card takes 1/10 of user's HP each turn
+  - Single card only
+
+  Fburn (Full Burn)
+  - Same as Burn but affects ENTIRE opposing team
+
+  FEVOburn (Full EVO Burn)
+  - Same as EVOburn but affects ENTIRE opposing team
+
+
+FREEZE EFFECTS:
+
+  Freeze
+  - Affected card cannot act for 1 turn
+  - Single card only
+
+  EVOfreeze
+  - Affected card cannot act for 2 turns
+  - Single card only
+
+  FFreeze (Full Freeze)
+  - Same as Freeze but affects ENTIRE opposing team
+
+  FEVOfreeze (Full EVO Freeze)
+  - Same as EVOfreeze but affects ENTIRE opposing team
+
+
+PARALYSIS EFFECTS:
+
+  Paralysis
+  - Next turn only: affected card has 50% chance to hit itself when attacking
+  - Self-damage equals normal attack damage
+  - Single card only
+
+  EVOparalysis
+  - Same as Paralysis but with 60% chance
+  - Single card only
+
+  Fparalysis (Full Paralysis)
+  - Same as Paralysis but affects ENTIRE opposing team
+
+  FEVOparalysis (Full EVO Paralysis)
+  - Same as EVOparalysis but affects ENTIRE opposing team
+
+
+F-PREFIX RULE:
+  Any effect prefixed with "F" (Full) applies to the ENTIRE opposing team
+  using the same logic as its non-F version.
+
+
+================================================================================
+5. RACE SYSTEM & PERKS
+================================================================================
+
+RACE RULES:
+  - Each card has ONE race only
+  - Race perks are passive and ALWAYS ACTIVE (unless stated otherwise)
+  - Perks do not stack with themselves (only one instance)
+  - Perks stack normally with other systems
+  - No race changes during battle
+  - Race perks do NOT override duel/fight logic unless explicitly stated
+  - Race is displayed in card embed as first field
+
+
+RACE SPECIFICATIONS
+====================
+
+HUMAN
+  Role: Balanced / baseline
+  Perks:
+    +5% to all base stats (Power, Health, Speed)
+  Weaknesses: None
+  Special Conditions: None
+
+
+FISH-MAN
+  Role: Physical bruiser
+  Perks:
+    +15% Power
+    +10% Health
+    -5% Speed
+
+
+MERFOLK
+  Role: Speed / utility
+  Perks:
+    +20% Speed
+    +5% Health
+    -10% Power
+
+
+GIANT
+  Role: Tank / heavy hitter
+  Perks:
+    +30% Health
+    +20% Power
+    -20% Speed
+
+
+BUCCANEER
+  Role: Endurance / raw strength
+  Perks:
+    +25% Health
+    +15% Power
+    Takes 10% less damage from all attacks
+
+
+SKYPIEAN
+  Role: Speed / evasion
+  Perks:
+    +15% Speed
+    +5% Power
+    +10% dodge / evasion chance
+
+
+SHANDIAN
+  Role: Aggressive combatant
+  Perks:
+    +15% Power
+    +10% Speed
+    +5% critical hit chance
+
+
+BIRKAN
+  Role: Special attack focus
+  Perks:
+    +20% Special Attack effectiveness
+    -5% Health
+
+
+LONGARM TRIBE
+  Role: Combo / pressure
+  Perks:
+    +10% Power
+    +10% attack hit chance
+    +5% chance to apply Special Conditions
+
+
+LONGLEG TRIBE
+  Role: First-strike / tempo
+  Perks:
+    +25% Speed
+    +10% chance to act first
+    -5% Health
+
+
+MINK
+  Role: Status & burst
+  Perks:
+    +15% Speed
+    +10% Power
+    Electro-based attacks deal +20% damage
+  Note: Sulong form (if implemented later) overrides base boosts
+
+
+TONTATTA (DWARF)
+  Role: Glass cannon / evasion
+  Perks:
+    +30% Speed
+    +20% evasion
+    -20% Health
+
+
+LUNARIAN
+  Role: Elite / durability
+  Perks:
+    +20% Health
+    +15% Power
+    Takes 15% less damage when not stunned or frozen
+
+
+THREE-EYE TRIBE
+  Role: Special & utility
+  Perks:
+    +15% Special Attack effectiveness
+    +10% accuracy
+    +5% chance to ignore enemy buffs
+
+
+NON-NATURAL TYPES (If Allowed)
+
+CYBORG
+  Role: Technological enhancement
+  Perks:
+    +20% Power
+    +10% Health
+    Immune to Poison
+
+
+SERAPHIM
+  Role: Divine power
+  Perks:
+    +25% Health
+    +15% Power
+    -10% Speed
+    Counts as Lunarian for perk interactions
+
+
+================================================================================
+6. GLOBAL RULES
+================================================================================
+
+STAT APPLICATION RULES:
+  - Race perks are passive and permanent
+  - No race changes during battle
+  - No race stacking (only one instance of each race perk)
+  - Race perks do NOT override core duel or fight logic unless explicitly stated
+  - If a stat is not listed for a race, it remains unchanged
+
+
+CARD CREATION WORKFLOW:
+  1. Determine character, rank, and evolution line
+  2. Select appropriate race based on character traits
+  3. Calculate base stats using tier ranges as guidelines
+  4. Apply race perks to base stats
+  5. Round stats per rounding rules
+  6. Add special attacks with names and GIFs
+  7. Add special conditions if applicable
+  8. Test evolution progression for smooth stat scaling
+  9. Verify all stats stay within tier ranges
+
+
+EVOLUTION CONSIDERATIONS:
+  - Each evolution should show meaningful stat growth
+  - Special Conditions may change or intensify at higher tiers
+  - Special Attacks should be thematically appropriate to evolution stage
+  - Special Attack effectiveness (damage range) should scale with rank
+
+
+SPECIAL ATTACK GUIDELINES:
+  - Range should scale with character power level and rank
+  - Special Condition should be thematic to the attack
+  - Not all attacks need a Special Condition
+  - Attack names should be recognizable (canon attacks preferred)
+
+POWER SCALING:
+================================================================================
+END OF CARD CREATION RULES
+================================================================================ 
+
+E — Civilian / Fodder level
+
+Classification: Human / Street level
+
+Normal civilians, weak pirates, early-series extras
+
+Can’t threaten a town on their own
+
+Example: random villagers, background marines
+
+D — Trained Fighter level
+
+Classification: Building level
+
+Can overpower groups, damage structures
+
+Still irrelevant in large-scale fights
+
+Example: bandits, weak bounty hunters, low-tier marines
+
+C — Superhuman Combatant
+
+Classification: City Block level
+
+Clearly superhuman strength/speed
+
+Can wipe groups, damage large buildings
+
+Example: East Blue captains, pre-Grand Line threats
+
+B — City-level Threat
+
+Classification: Small City level
+
+Can endanger or take over a town/city
+
+Usually have Devil Fruits or strong combat skill
+
+Example: early Warlord-tier minions, CP agents
+
+A — Island Threat
+
+Classification: Island level
+
+Can decisively control or devastate an island
+
+Strong Devil Fruit or Haki user
+
+Example: mid-tier Warlords, Vice Admirals, early New World captains
+
+S — Large Island / Regional level
+
+Classification: Large Island / Country level
+
+Can reshape battlefields, sink fleets
+
+Strong Haki mastery
+
+Example: Admirals, top commanders, post-timeskip Luffy
+
+SS — Continental / Sea-Dominating level
+
+Classification: Multi-Island / Continental level
+
+Power threatens entire seas, not just islands
+
+Their presence changes world balance
+
+Example: Yonko, Prime Garp, Prime Sengoku
+
+UR — World-Level Threat
+
+Classification: Planetary (One Piece World) level
+
+Can destabilize the entire world order
+
+Capable of mass destruction on a global scale (tsunamis, world-shaking battles)
+
+Example: Prime Whitebeard, Roger, Rocks
+
+LR — God-Tier / Mythical Apex
+
+Classification: World+ / Mythical level
+
+Above normal scaling, tied to secrets of the world
+
+Power is narratively supreme, not just physical
+
+Example: Imu, Ancient Weapon-level beings, Void Century legends

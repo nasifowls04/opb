@@ -1,0 +1,112 @@
+================================================================================
+                    EMBED DISPLAY UPDATES - IMPLEMENTATION SUMMARY
+================================================================================
+
+CHANGES IMPLEMENTED
+===================
+
+1. RACE DISPLAY ON ALL EMBEDS
+   Location: buildCardEmbed(), buildDropEmbed(), buildUserCardEmbed() in lib/cardEmbed.js
+   
+   - Race is now displayed at the TOP of the stats section
+   - Shows as: **Race:** [Race Name]
+   - Appears on:
+     * Pull embeds (buildCardEmbed)
+     * Drop embeds (buildDropEmbed)
+     * User inventory embeds (buildUserCardEmbed)
+
+
+2. SPECIAL CONDITION DISPLAY NEXT TO SPECIAL ATTACKS
+   Location: buildCardEmbed(), buildDropEmbed(), buildUserCardEmbed() in lib/cardEmbed.js
+   
+   - Special Condition now shows next to Special Attack name
+   - Format: **Special:** [Attack Name] ([damage range]) [Special Condition]
+   - Example: **Special:** Gum Gum pistol (25-40 damage) [Stun]
+   - Only displays if specialCondition field exists on the card
+   - Appears on all card embeds
+
+
+3. RACE BOOSTS IN USER STATS BOOSTS FIELD
+   Location: buildUserCardEmbed() in lib/cardEmbed.js
+   
+   - Race boosts now calculated automatically
+   - Displayed in **Boosts:** field alongside other boosts
+   - Format: Race: ATK +[amount] and Race: HP +[amount]
+   - Calculated as percentage of current stats
+   - Works alongside weapon boosts and team boosts
+   - Example: **Boosts:** ATK +5% • HP +10% • Race: ATK +25 • Race: HP +50
+
+
+4. RACE BOOST SYSTEM (lib/stats.js)
+   Location: lib/stats.js
+   
+   - Added raceBoosts object with 16 race types:
+     * Human: +5% all stats
+     * Fish-Man: +15% Power, +10% Health, -5% Speed
+     * Merfolk: +20% Speed, +5% Health, -10% Power
+     * Giant: +30% Health, +20% Power, -20% Speed
+     * Buccaneer: +25% Health, +15% Power, 10% damage reduction
+     * Skypiean: +15% Speed, +5% Power, +10% evasion
+     * Shandian: +15% Power, +10% Speed, +5% crit chance
+     * Birkan: +20% Special Attack effectiveness, -5% Health
+     * Longarm Tribe: +10% Power, +10% hit chance, +5% SC chance
+     * Longleg Tribe: +25% Speed, +10% first strike, -5% Health
+     * Mink: +15% Speed, +10% Power, +20% Electro boost
+     * Tontatta (Dwarf): +30% Speed, +20% evasion, -20% Health
+     * Lunarian: +20% Health, +15% Power, 15% damage reduction
+     * Three-Eye Tribe: +15% Special Attack, +10% accuracy, +5% ignore buffs
+     * Cyborg: +20% Power, +10% Health, Poison immunity
+     * Seraphim: +25% Health, +15% Power, -10% Speed
+   
+   - Added getRaceBoosts(race) function
+   - Returns boost values for stat calculations
+
+
+CARD DATA UPDATES (cards.js)
+============================
+
+All Luffy cards updated with:
+- race: "Human"
+- speed stat (new field)
+- specialCondition field on special attacks (where applicable)
+- Proper stat scaling within tier ranges
+
+Luffy Cards:
+  luffy_e_01: No special condition
+  luffy_c_02: specialCondition: "Stun"
+  luffy_b_03: specialCondition: "Stun"
+  luffy_a_04: specialCondition: "Stun"
+  luffy_s_05: specialCondition: null (no condition)
+  luffy_ur_06: specialCondition: "FEVOstun"
+
+
+FILES MODIFIED
+==============
+1. /workspaces/opb/lib/stats.js
+   - Added raceBoosts object with all 16 races
+   - Added getRaceBoosts() function
+   - Updated exports
+
+2. /workspaces/opb/lib/cardEmbed.js
+   - Added getRaceBoosts import from stats.js
+   - Updated buildCardEmbed() to show race and special conditions
+   - Updated buildDropEmbed() to show race and special conditions
+   - Updated buildUserCardEmbed() to:
+     * Show race at top
+     * Display special conditions on special attacks
+     * Calculate and display race boosts in Boosts field
+   - All changes preserve existing functionality
+
+3. /workspaces/opb/cards.js
+   - Updated all 6 Luffy card definitions with proper structure
+
+
+TESTING NOTES
+=============
+- Pull embeds will now show race and special conditions
+- Drop messages will now show race and special conditions
+- User inventory will show race, special conditions, and calculated race boosts
+- Race boosts are calculated as percentages of current stats
+- Race boosts appear alongside team boosts and weapon boosts in the Boosts field
+
+================================================================================

@@ -8,14 +8,19 @@ const WINDOW_MS = 24 * 60 * 60 * 1000; // 24 hours
 const MAX_PULLS = 7;
 
 const RANK_XP = {
+  E: 10,
+  D: 15,
   C: 20,
   B: 50,
   A: 75,
   S: 100,
+  SS: 150,
+  UR: 200,
+  LR: 300,
 };
 
 // default probabilities (percentages)
-const PULL_PROBABILITIES = { C: 60, B: 30, A: 8, S: 1, ITEM: 1 };
+const PULL_PROBABILITIES = { E: 36.075, D: 30, C: 15, B: 10, A: 5, S: 3, SS: 1, UR: 0.2, LR: 0.05 };
 
 // MongoDB (mongoose) is used for persistence via models/Pull.js and models/Progress.js
 
@@ -170,8 +175,8 @@ export async function execute(interactionOrMessage, client) {
   }
 
   let description = "";
-  // footer will show pity cycle progress instead of per-window pulls
-  const footer = `Pity: ${cyclePos}/100`;
+  // footer will show guaranteed S rank cycle progress instead of per-window pulls
+  const footer = `Guaranteed S rank card in ${cyclePos}/100`;
 
   // If user already owns an upgraded version of this card, convert the pull
   // to that highest owned upgrade in the chain.
@@ -300,8 +305,8 @@ export async function execute(interactionOrMessage, client) {
 
   // Show base stats (level 1) for card pull embed
   const effectivePower = pulled.power;
-  const effectiveAttackMin = pulled.attackRange[0];
-  const effectiveAttackMax = pulled.attackRange[1];
+  const effectiveAttackMin = pulled.attackRange?.[0] || 0;
+  const effectiveAttackMax = pulled.attackRange?.[1] || 0;
   const effectiveHealth = pulled.health || 0;
 
   // build embed similar to the provided image layout
@@ -325,21 +330,21 @@ export async function execute(interactionOrMessage, client) {
   const abilitySafe = pulled.ability ? String(pulled.ability).replace(/\d+\s*%/g, '').trim() : '';
   if (wasDuplicate) {
     statsText = `**Power:** ${effectivePower}
-**Attack:** ${effectiveAttackMin} - ${effectiveAttackMax}
-**Health:** ${effectiveHealth}${abilitySafe ? `\n**Effect:** ${abilitySafe}` : ''}`;
+**Health:** ${effectiveHealth}
+**Attack:** ${effectiveAttackMin} - ${effectiveAttackMax}${abilitySafe ? `\n**Effect:** ${abilitySafe}` : ''}`;
   } else {
     statsText = `**Level:** ${displayLevel}
 **Power:** ${effectivePower}
-**Attack:** ${effectiveAttackMin} - ${effectiveAttackMax}
-**Health:** ${effectiveHealth}${abilitySafe ? `\n**Effect:** ${abilitySafe}` : ''}`;
+**Health:** ${effectiveHealth}
+**Attack:** ${effectiveAttackMin} - ${effectiveAttackMax}${abilitySafe ? `\n**Effect:** ${abilitySafe}` : ''}`;
   }
 
   // if this was a new acquisition, show the card's `title` as normal text in the description
   const isNew = description === "" && (userCardsMap.get(pulled.id) || {}).acquiredAt;
   const entryForTitle = userCardsMap.get(pulled.id) || {};
   const subtitle = isNew && pulled.title ? `${pulled.title}` : "";
-  // include card type (Attacking/Support) in footer next to pity
-  const typeLabel = pulled.type === "Attack" ? "Attacking Card" : (pulled.type || "-");
+  // include card type (Attack/Support) in footer next to pity
+  const typeLabel = pulled.type === "Attack" ? "Attack" : (pulled.type || "-");
   const footerText = `${footer} • ${typeLabel}`;
 
   const descPrefix = subtitle ? `${subtitle}\n\n` : "";

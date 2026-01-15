@@ -1,0 +1,85 @@
+Episode Creation Guide
+=====================
+
+This guide outlines how to create new episodes and stages for the One Piece Bot sailing system.
+
+Episode Structure
+-----------------
+Each episode is an object in the `episodes` export with:
+- title: String - Episode title
+- stages: Array of stage objects
+
+Stage Types
+-----------
+1. embed: Narrative/story stage
+   - type: 'embed'
+   - title: String - Short descriptive title
+   - description: String - Story text
+   - image: String - Image URL (use catbox.moe)
+   - rewards: Array (optional) - Listed rewards (applied automatically for intro embeds)
+
+2. fight: Combat stage
+   - type: 'fight'
+   - title: String - Fight description
+   - enemies: Array of enemy objects
+     - id: String - Enemy ID
+     - name: String - Display name
+     - health: Number - HP (boost final boss by 25%)
+     - attack: Array [min, max] - Damage range
+
+3. accuracy: Mini-game stage
+   - type: 'accuracy'
+   - title: String - Mini-game name
+   - description: String - Instructions (emphasize clicking closest to end)
+   - image: String - Image URL
+   - duration: Number - Time in ms
+   - tick: Number - Update interval
+   - successWindow: Number - Success time window at end
+
+4. trivia: Quiz stage
+   - type: 'trivia'
+   - title: String - Question title
+   - description: String - Context
+   - image: String - Image URL
+   - question: String - The question
+   - buttons: Object - { '1': 'Option 1', '2': 'Option 2', ... }
+   - answer: String - Correct button key
+   - rewards: Array - Rewards for correct answer
+
+5. decision: Choice stage
+   - type: 'decision'
+   - title: String - Decision prompt
+   - description: String - Context
+   - image: String - Image URL
+   - Ifyes: { title: String (must match a stage title), isloose: Boolean }
+   - Ifno: { title: String (must match a stage title), isloose: Boolean }
+   - buttonYes: String - Yes button text
+   - buttonNo: String - No button text
+   - rewardsYes: Array - Rewards for yes
+   - rewardsNo: Array - Rewards for no
+
+6. reward: Episode end stage
+   - type: 'reward'
+   - title: String - Completion message
+   - description: String - Final text
+   - image: 'https://files.catbox.moe/6xc7up.webp' (always this)
+
+Rewards Format
+--------------
+- { type: 'beli', amount: 'min-max' | number, hardOnly: false }
+- { type: 'chest', rank: 'C'|'B'|'A'|'S', amount: number, hardOnly: false }
+- { type: 'card', name: 'CardName', hardOnly: false } (only for hard mode)
+- { type: 'xp', amount: number, hardOnly: false }
+- { type: 'karma', amount: number, hardOnly: false }
+
+Guidelines
+----------
+- Minimum 5 stages per episode
+- Diversity: Mix embed, fight, accuracy, trivia, decision
+- Episode intro embed: Short title, apply beli/chest/xp rewards automatically
+- Final boss fights: Boost stats by 25%
+- Hard mode: Only give cards from defeated enemies
+- Images: Use catbox.moe URLs
+- Decision titles: Must match existing stage titles for redirection
+- Reward images: Always https://files.catbox.moe/6xc7up.webp
+- Check cards.js for enemy stats and card names

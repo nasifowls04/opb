@@ -1,0 +1,44 @@
+E = 
+power: 0 to 10
+Health: 0 to 10
+speed: 0 to 10
+attack: 1 to 2
+D = 
+power: 10 to 50
+health: 10 to 50
+speed: 10 to 50
+attack: 2 to 10
+C = 
+power: 50 to 100
+health: 50 to 100
+speed: 50 to 200
+attack: 10 to 20
+B = 
+power: 100 to 175
+health: 100 to 150
+speed: 100 to 250
+attack: 20 to 30
+A = 
+power: 175 to 250
+health: 150 to 200
+speed: 175 to 400
+attack: 30 to 50
+S = 
+power: 250 to 350
+health: 200 to 300
+speed: 250 to 500
+attack: 50 to 60
+SS = 
+power: 350 to 500
+health: 300 to 400
+attack: 60 to 80
+UR = 
+power: 500 to 750
+health: 400 to 600
+speed: 500 to 1000
+attack: 80 to 120
+LR = 
+power: 750 to 1000
+health: 600 to 1000
+speed: 750 to 1000
+attack: 120 to 200
